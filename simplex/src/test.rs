@@ -36,3 +36,17 @@ fn test_setup(){
     ]);
     assert_eq!(table,test);
 }
+
+#[test]
+fn test_select_pivot(){
+    let objective = arr1(&[-3.,1.,-2.]);
+    let constraints = arr2(&[
+        [2.,-2.,3.,1.,0.,0.],
+        [1.,1.,-1.,0.,1.,0.],
+        [1.,-1.,1.,0.,0.,1.]
+    ]);
+    let requirements = arr1(&[5.,3.,2.]);
+    let table = initial_table(&objective,&constraints,&requirements);
+    let pivot = pivot_point(&table);
+    assert_eq!(Some([3,1]),pivot);
+}
