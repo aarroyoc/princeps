@@ -1,0 +1,9 @@
+[package]
+name = "simplex"
+version = "0.1.0"
+authors = ["Adrián Arroyo Calle <adrian.arroyocalle@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+ndarray = "0.12.1"
+num-traits = "0.2.6"
