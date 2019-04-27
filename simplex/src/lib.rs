@@ -58,7 +58,7 @@ fn pivot_point<T: Float + std::convert::From<i32>>(table: &Array2<T>) -> Option<
         let req = table.len_of(Axis(1)) - 1;
         for i in 1..table.len_of(Axis(0)) {
             if let Some(m) = in_var_min{
-                if table[[i,req]]/table[[i,j]] < m {
+                if table[[i,req]]/table[[i,j]] < m && table[[i,req]]/table[[i,j]] > 0.into(){
                     in_var_min = Some(table[[i,req]]/table[[i,j]]);
                     in_var = Some(i);
                 }
@@ -72,6 +72,30 @@ fn pivot_point<T: Float + std::convert::From<i32>>(table: &Array2<T>) -> Option<
         (Some(j),Some(i)) => Some([i,j]),
         _ => None
     }
+}
+
+fn gauss<T>(pivot: [usize;2], table: &mut Array2<T>)
+where
+    T: Float + std::ops::MulAssign + std::ops::AddAssign + ndarray::ScalarOperand {
+    for i in 0..table.len_of(Axis(0)) {
+        if i != pivot[0] {
+            // Aplicar GAUSS a la fila
+            let pivot_n = table[pivot];
+            let make_zero = table[[i,pivot[1]]];
+            // Multiplicar la fila de make_zero por pivot_n
+            let mut row_pivot = table.row(pivot[0]).to_owned();
+            let mut row_make_zero = table.row_mut(i);
+            row_make_zero *= pivot_n;
+            row_pivot *= -make_zero;
+            row_make_zero += &row_pivot;
+        }
+    }
+}
+
+// Comprobar si existe solucion, soluciones degeneradas
+
+fn check_optimus() {
+
 }
 
 pub fn simplex<T: Float + std::convert::From<i32> + std::fmt::Debug>
