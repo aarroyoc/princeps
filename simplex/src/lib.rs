@@ -76,12 +76,16 @@ fn pivot_point<T: Float + std::convert::From<i32>>(table: &Array2<T>) -> Option<
 
 fn gauss<T>(pivot: [usize;2], table: &mut Array2<T>)
 where
-    T: Float + std::ops::MulAssign + std::ops::AddAssign + ndarray::ScalarOperand {
+    T: Float + std::fmt::Debug + std::ops::MulAssign + std::ops::AddAssign + std::ops::DivAssign + ndarray::ScalarOperand {
     for i in 0..table.len_of(Axis(0)) {
         if i != pivot[0] {
             // Aplicar GAUSS a la fila
             let pivot_n = table[pivot];
             let make_zero = table[[i,pivot[1]]];
+            {
+                let mut row_pivot = table.row_mut(pivot[0]);
+                row_pivot /= pivot_n;
+            }
             // Multiplicar la fila de make_zero por pivot_n
             let mut row_pivot = table.row(pivot[0]).to_owned();
             let mut row_make_zero = table.row_mut(i);
@@ -90,6 +94,9 @@ where
             row_make_zero += &row_pivot;
         }
     }
+    let mut pivot_n = table[[0,0]];
+    let mut row_pivot = table.row_mut(0);
+    row_pivot /= pivot_n;
 }
 
 // Comprobar si existe solucion, soluciones degeneradas

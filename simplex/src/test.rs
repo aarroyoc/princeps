@@ -83,7 +83,6 @@ fn test_simplex_all(){
     let requirements = arr1(&[5.,3.,2.]);
     let mut table = initial_table(&objective,&constraints,&requirements);
     while let Some(pivot) = pivot_point(&table) {
-        dbg!(pivot);
         gauss(pivot,&mut table);
     }
     let expected = arr2(&[
