@@ -24,7 +24,7 @@ fn main(){
     match simplex.solve() {
         SimplexOutput::UniqueOptimum(x) => println!("{}", x),
         SimplexOutput::MultipleOptimum(x) => println!("{}", x),
-        _ => println!("No solution or unbounded") => return
+        _ => panic!("No solution or unbounded"),
     }
     println!("{:?}", simplex.get_var(1));
     println!("{:?}", simplex.get_var(2));
