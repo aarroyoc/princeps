@@ -1,9 +1,12 @@
 [package]
 name = "simplex"
-version = "0.1.0"
+description = "A Linear Programming solver"
+version = "0.9.0"
 authors = ["Adrián Arroyo Calle <adrian.arroyocalle@gmail.com>"]
 edition = "2018"
+readme = "README.md"
+categories = ["algorithms", "mathematics"]
+keywords = ["simplex", "linear-programming"]
 
 [dependencies]
-ndarray = "0.12.1"
-num-traits = "0.2.6"
+ndarray = "0.13.1"

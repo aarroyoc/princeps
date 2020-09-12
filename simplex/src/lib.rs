@@ -1,113 +1,354 @@
-use ndarray::{Array1,Array2,arr1,arr2};
 use ndarray::*;
-
-use num_traits::Float;
 
 #[cfg(test)]
 mod test;
 
-pub struct SimplexResult {
+/// Constraints you can add to your LP problem
+/// 
+/// Equal is x + y + z = N
+/// LessThan is x + y + z <= N
+/// GreaterThan is x + y + z >= N
+pub enum SimplexConstraint{
+    Equal(Vec<f64>, f64),
+    LessThan(Vec<f64>, f64),
+    GreaterThan(Vec<f64>, f64),
+}
+
+impl SimplexConstraint {
+    fn get_vector(&self) -> &Vec<f64>{
+        match self {
+            SimplexConstraint::Equal(a,b) => a,
+            SimplexConstraint::LessThan(a,b) => a,
+            SimplexConstraint::GreaterThan(a,b) => a,
+        }
+    }
+
+    fn get_b(&self) -> f64 {
+        match self {
+            SimplexConstraint::Equal(a,b) => *b,
+            SimplexConstraint::LessThan(a,b) => *b,
+            SimplexConstraint::GreaterThan(a,b) => *b,
+        }
+    }
 
 }
 
-type SimplexTable = Array2<std::convert::From<i32>>;
-
-fn initial_table<T: Float + std::convert::From<i32>>
-    (objective: &Array1<T>, constraints: &Array2<T>, requirements: &Array1<T>)
-    -> Array2<T>
-    {
-    let n_variables = objective.len();
-    // Margen izquierdo, valor de cada variable en la restriccion, columna de requerimientos, variables artificiales
-    let dimension_j = 1+n_variables+1+constraints.len_of(Axis(0));
-    // Cada restriccion y el renglon z
-    let dimension_i = constraints.len_of(Axis(0)) + 1;
-    let mut table = Array2::<T>::zeros((dimension_i,dimension_j));
-    // Renglon Z
-    table[[0,0]] = 1i32.into();
-    for j in 0..objective.len(){
-        table[[0,j+1]] = objective[j];
-        table[[0,j+1]] = table[[0,j+1]] * (-1).into();
-    }
-    // Restricciones
-    for i in 0..constraints.len_of(Axis(0)){
-        for j in 0..constraints.len_of(Axis(1)){
-            table[[i+1,j+1]] = constraints[[i,j]];
-        }
-    }
-    // Requerimientos
-    for i in 0..requirements.len(){
-        table[[i+1,dimension_j-1]] = requirements[i];
-    }
-    table
+#[derive(Clone, Debug, PartialEq)]
+pub enum SimplexVar {
+    Real,
+    Slack(usize),
+    NegativeSlack(usize),
+    Artificial(usize),
 }
 
-fn pivot_point<T: Float + std::convert::From<i32>>(table: &Array2<T>) -> Option<[usize;2]> {
-    let mut out_var = None;
-    let mut out_var_max = 0.into();
-    let mut in_var = None;
-    let mut in_var_min = None;
-
-    for j in 1..(table.len_of(Axis(1))-1){
-        if table[[0,j]] > out_var_max {
-            out_var_max = table[[0,j]];
-            out_var = Some(j);
+impl SimplexVar {
+    fn is_artificial(&self) -> bool{
+        match self {
+            SimplexVar::Artificial(_) => true,
+            _ => false
         }
     }
-    
-    if let Some(j) = out_var {
-        let req = table.len_of(Axis(1)) - 1;
-        for i in 1..table.len_of(Axis(0)) {
-            if let Some(m) = in_var_min{
-                if table[[i,req]]/table[[i,j]] < m && table[[i,req]]/table[[i,j]] > 0.into(){
-                    in_var_min = Some(table[[i,req]]/table[[i,j]]);
-                    in_var = Some(i);
+
+    fn is_slack(&self) -> bool{
+        match self {
+            SimplexVar::Slack(_) => true,
+            _ => false
+        }
+    }
+}
+/// The result of a Simplex calculation
+/// 
+/// UniqueOptimum means there's only one solution, and is an optimum
+/// MultipleOptimum means there's an optimum, but with different solutions. Run solve again to get another solution.
+/// InfiniteSolution means the problem is unbound, so the optimum is infinite
+/// NoSolution means the problem doesn't seem to be feasible
+#[derive(Debug, PartialEq)]
+pub enum SimplexOutput {
+    UniqueOptimum(f64),
+    MultipleOptimum(f64),
+    InfiniteSolution,
+    NoSolution,
+}
+
+pub struct SimplexTable{
+    objective: Vec<f64>,
+    table: Array2<f64>,
+    base: Vec<usize>,
+    vars: Vec<SimplexVar>,
+}
+
+impl SimplexTable {
+    fn get_entry_var(&self) -> Option<usize>{
+        let mut entry_var = None;
+        let mut max_entry = -1.0;
+        for (i, z) in self.table.row(0).iter().enumerate(){
+            if i == 0 || i == self.table.ncols()-1{
+                continue;
+            }
+            if max_entry < *z {
+                max_entry = *z;
+                entry_var = Some(i);
+            }
+        }
+        entry_var
+    }
+
+    fn get_exit_var(&self, entry_var: usize) -> Option<usize> {
+        let mut exit_var = None;
+        let mut min_entry = f64::MAX;
+        let b = self.table.column(self.table.ncols()-1);
+        for (i, z) in self.table.column(entry_var).iter().enumerate(){
+            if i == 0 {
+                continue;
+            }
+            if *z <= 0.0 {
+                continue;
+            }
+            if min_entry > b[i]/z{
+                min_entry = b[i]/z;
+                exit_var = Some(self.base[i-1]);
+            }
+        }
+        exit_var
+    }
+
+    fn step(&mut self, entry_var: usize, exit_var: usize){
+        let exit_row = self.base.iter().position(|x| *x == exit_var).unwrap() +1;
+        let pivot = self.table.row(exit_row)[entry_var];
+        {
+            let mut row = self.table.row_mut(exit_row);
+            row /= pivot;
+        }
+        for i in 0..self.table.nrows(){
+            if i == exit_row {
+                continue;
+            }
+            let mut exit_row = self.table.row(exit_row).to_owned();
+            let mut row = self.table.row_mut(i);
+            let factor = row[entry_var] / -1.0;
+            exit_row *= factor;
+            row += &exit_row;
+        }
+        self.base = self.base.iter_mut()
+            .map(|x| if *x == exit_var {
+                entry_var
+            }else{
+                *x
+            })
+            .collect();
+    }
+
+    /// Solve your LP problem
+    /// 
+    /// Try to solve the LP problem. It uses the "standard" Simplex algorithm, with Big M method
+    /// There's no timeout, so it could run for a very long time if you're not careful.
+    /// It returns a SimplexOutput, which has a description of the solution and the optimum value (if exists).
+    /// ```rust
+    ///    let program = Simplex::minimize(&vec![-3.0, 1.0, -2.0])
+    ///    .with(vec![
+    ///        SimplexConstraint::LessThan(vec![2.0, -2.0, 3.0], 5.0),
+    ///        SimplexConstraint::LessThan(vec![1.0, 1.0, -1.0], 3.0),
+    ///        SimplexConstraint::LessThan(vec![1.0, -1.0, 1.0], 2.0),
+    ///    ]);
+    ///    let mut simplex = program.unwrap();
+    ///    assert_eq!(simplex.solve(), SimplexOutput::MultipleOptimum(-8.0));
+    ///    assert_eq!(simplex.get_var(1), Some(2.5));
+    ///    assert_eq!(simplex.get_var(2), Some(1.5));
+    ///    assert_eq!(simplex.get_var(3), Some(1.0));
+    /// ```
+    pub fn solve(&mut self) -> SimplexOutput{
+        loop {
+            if let Some(entry_var) = self.get_entry_var(){
+                if let Some(exit_var) = self.get_exit_var(entry_var){
+                    self.step(entry_var, exit_var);
+                }else{
+                    return SimplexOutput::InfiniteSolution;
                 }
             }else{
-                in_var_min = Some(table[[i,req]]/table[[i,j]]);
-                in_var = Some(i);
+                panic!("Can't continue");
+            }
+            let mut optimum = true;
+            let mut unique = true;
+            for (i, &z) in self.table.row(0).iter().skip(1).enumerate() {
+                optimum = optimum && z <= 0.0;
+                if !self.base.contains(&i) && i <= self.objective.len(){
+                    unique =  unique && z - self.objective[i] < 0.0;
+                }
+            }
+            if optimum {
+                let optimum = self.table.row(0)[self.table.ncols()-1];
+                for (i, var) in self.base.iter().enumerate() {
+                    if self.vars[*var-1].is_artificial(){
+                        if self.table.row(i+1)[self.table.ncols()-1] > 0.0{
+                            /* Artificial variable might have taken slack var value */
+                            if self.vars[*var-2].is_slack(){
+                                if self.table.row(0)[*var-1] == 0.0 {
+                                    continue;
+                                }
+                            }
+                            return SimplexOutput::NoSolution;
+                        }
+                    }
+                }
+                if unique {
+                    return SimplexOutput::UniqueOptimum(optimum);
+                } else {
+                    return SimplexOutput::MultipleOptimum(optimum);
+                }
+
             }
         }
     }
-    match (out_var,in_var) {
-        (Some(j),Some(i)) => Some([i,j]),
-        _ => None
+
+    /// Gets the value of the N var in a solved problem
+    /// 
+    /// ```rust
+    ///    let program = Simplex::minimize(&vec![-3.0, 1.0, -2.0])
+    ///    .with(vec![
+    ///        SimplexConstraint::LessThan(vec![2.0, -2.0, 3.0], 5.0),
+    ///        SimplexConstraint::LessThan(vec![1.0, 1.0, -1.0], 3.0),
+    ///        SimplexConstraint::LessThan(vec![1.0, -1.0, 1.0], 2.0),
+    ///    ]);
+    ///    let mut simplex = program.unwrap();
+    ///    assert_eq!(simplex.solve(), SimplexOutput::MultipleOptimum(-8.0));
+    ///    assert_eq!(simplex.get_var(1), Some(2.5));
+    ///    assert_eq!(simplex.get_var(2), Some(1.5));
+    ///    assert_eq!(simplex.get_var(3), Some(1.0));
+    /// ```
+    pub fn get_var(&self, var: usize) -> Option<f64>{
+        if var > self.objective.len() {
+            return None;
+        }
+        for (i, v) in self.base.iter().enumerate() {
+            if *v == var {
+                return Some(self.table.row(i+1)[self.table.ncols()-1]);
+            }
+        }
+        return Some(0.0);
     }
 }
 
-fn gauss<T>(pivot: [usize;2], table: &mut Array2<T>)
-where
-    T: Float + std::fmt::Debug + std::ops::MulAssign + std::ops::AddAssign + std::ops::DivAssign + ndarray::ScalarOperand {
-    for i in 0..table.len_of(Axis(0)) {
-        if i != pivot[0] {
-            // Aplicar GAUSS a la fila
-            let pivot_n = table[pivot];
-            let make_zero = table[[i,pivot[1]]];
-            {
-                let mut row_pivot = table.row_mut(pivot[0]);
-                row_pivot /= pivot_n;
+pub struct SimplexMinimizerBuilder{
+    objective: Vec<f64>,
+}
+
+impl SimplexMinimizerBuilder {
+    /// Add constraints to the problem
+    /// 
+    /// Add constraints to your problem. All variables are already restricted to be equal or more than zero.
+    /// Constraints must be of type SimplexConstraint. It will return a Result. If the generated matrix is not valid (wrong dimensions,...), it will return an Err(String).
+    /// 
+    /// ```rust
+    /// let mut simplex = Simplex::minimize(&vec![1.0, -2.0])
+    /// .with(vec![
+    ///     SimplexConstraint::GreaterThan(vec![1.0, 1.0], 2.0),
+    ///     SimplexConstraint::GreaterThan(vec![-1.0, 1.0], 1.0),
+    ///     SimplexConstraint::LessThan(vec![0.0, 1.0], 3.0),
+    /// ]);
+    /// ```
+    /// would be like:
+    /// ```
+    /// minimize z = x - 2y
+    /// with
+    ///      x + y >= 2
+    ///      -x +y >= 1
+    ///      y <= 3
+    /// ```
+    pub fn with(self, constraints: Vec<SimplexConstraint>) -> Result<SimplexTable, String>{
+        let mut table = Vec::new();
+        let mut vars = Vec::new();
+        table.push(1.0);
+        for var in self.objective.iter(){
+            table.push(var * -1.0);
+            vars.push(SimplexVar::Real);
+        }
+        for (i, constraint) in constraints.iter().enumerate(){
+            match constraint {
+                SimplexConstraint::LessThan(_, _) => {
+                    table.push(0.0);
+                    vars.push(SimplexVar::Slack(i));
+                },
+                SimplexConstraint::GreaterThan(_, _) => {
+                    table.push(0.0);
+                    vars.push(SimplexVar::NegativeSlack(i));
+                }
+                _ => {}
             }
-            // Multiplicar la fila de make_zero por pivot_n
-            let mut row_pivot = table.row(pivot[0]).to_owned();
-            let mut row_make_zero = table.row_mut(i);
-            row_make_zero *= pivot_n;
-            row_pivot *= -make_zero;
-            row_make_zero += &row_pivot;
+            table.push(f64::MIN);
+            vars.push(SimplexVar::Artificial(i));
+        }
+        table.push(0.0);
+
+        for (i, constraint) in constraints.iter().enumerate(){
+            table.push(0.0);
+            for a in constraint.get_vector(){
+                table.push(*a);
+            }
+            for var in vars.iter(){
+                match var{
+                    SimplexVar::Slack(j) => if *j == i {
+                        table.push(1.0);
+                    }else{
+                        table.push(0.0);
+                    },
+                    SimplexVar::NegativeSlack(j) => if *j == i {
+                        table.push(-1.0);
+                    }else{
+                        table.push(0.0);
+                    },
+                    SimplexVar::Artificial(j) => if *j == i {
+                        table.push(1.0);
+                    }else{
+                        table.push(0.0);
+                    }
+                    _ => {}
+                }
+            }
+            table.push(constraint.get_b());
+        }
+        let base: Vec<usize> = vars.iter()
+            .enumerate()
+            .filter_map(|(i, x)| if x.is_artificial() {
+                Some(i+1)
+            }else{
+                None
+            })
+            .collect();
+        let table = Array2::from_shape_vec((base.len() + 1, vars.len()+2), table);
+        match table {
+            Ok(table) => Ok(SimplexTable{
+                objective: self.objective,
+                table: table,
+                base: base,
+                vars: vars,
+            }),
+            Err(_) => Err(String::from("Invalid matrix"))
         }
     }
-    let mut pivot_n = table[[0,0]];
-    let mut row_pivot = table.row_mut(0);
-    row_pivot /= pivot_n;
 }
 
-// Comprobar si existe solucion, soluciones degeneradas
+/// Initialize your Linnear Programming problem
+/// 
+/// Use it at the beginning, to define your problem.
+/// 
+/// ```rust
+/// let mut problem = Simplex::minimize(&vec![5.0, -6.0]);
+/// ```
+/// 
+pub struct Simplex;
 
-fn check_optimus() {
-
-}
-
-pub fn simplex<T: Float + std::convert::From<i32> + std::fmt::Debug>
-    (objective: Array1<T>, constraints: Array2<T>, requirements: Array1<T>){
-    let table = initial_table(&objective, &constraints, &requirements);
-    println!("{:?}",table);
-    unimplemented!();
+impl Simplex {
+    // Initialize a LP minimization problem
+    //
+    // Currently, only minimization is provided. Maximization can be achieved by changing the signs
+    //
+    // ```rust
+    // let mut problem = Simplex::minimize(&vec![5.0, -6.0]);
+    // ```
+    // It initializes Simplex with a minimization objective function z = 5x - 6y
+    pub fn minimize(objective: &Vec<f64>) -> SimplexMinimizerBuilder{
+        SimplexMinimizerBuilder{
+            objective: objective.clone()
+        }
+    }
 }
