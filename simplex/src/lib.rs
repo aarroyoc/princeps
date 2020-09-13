@@ -1,5 +1,6 @@
 use ndarray::*;
 
+
 #[cfg(test)]
 mod test;
 
@@ -141,6 +142,8 @@ impl SimplexTable {
     /// There's no timeout, so it could run for a very long time if you're not careful.
     /// It returns a SimplexOutput, which has a description of the solution and the optimum value (if exists).
     /// ```rust
+    ///    use simplex::*;
+    /// 
     ///    let program = Simplex::minimize(&vec![-3.0, 1.0, -2.0])
     ///    .with(vec![
     ///        SimplexConstraint::LessThan(vec![2.0, -2.0, 3.0], 5.0),
@@ -199,6 +202,8 @@ impl SimplexTable {
     /// Gets the value of the N var in a solved problem
     ///
     /// ```rust
+    ///    use simplex::*;
+    /// 
     ///    let program = Simplex::minimize(&vec![-3.0, 1.0, -2.0])
     ///    .with(vec![
     ///        SimplexConstraint::LessThan(vec![2.0, -2.0, 3.0], 5.0),
@@ -235,6 +240,8 @@ impl SimplexMinimizerBuilder {
     /// Constraints must be of type SimplexConstraint. It will return a Result. If the generated matrix is not valid (wrong dimensions,...), it will return an Err(String).
     ///
     /// ```rust
+    /// use simplex::*;
+    /// 
     /// let mut simplex = Simplex::minimize(&vec![1.0, -2.0])
     /// .with(vec![
     ///     SimplexConstraint::GreaterThan(vec![1.0, 1.0], 2.0),
@@ -243,7 +250,7 @@ impl SimplexMinimizerBuilder {
     /// ]);
     /// ```
     /// would be like:
-    /// ```
+    /// ```sh
     /// minimize z = x - 2y
     /// with
     ///      x + y >= 2
@@ -331,20 +338,23 @@ impl SimplexMinimizerBuilder {
 /// Use it at the beginning, to define your problem.
 ///
 /// ```rust
+/// use simplex::*;
+/// 
 /// let mut problem = Simplex::minimize(&vec![5.0, -6.0]);
 /// ```
 ///
 pub struct Simplex;
 
 impl Simplex {
-    // Initialize a LP minimization problem
-    //
-    // Currently, only minimization is provided. Maximization can be achieved by changing the signs
-    //
-    // ```rust
-    // let mut problem = Simplex::minimize(&vec![5.0, -6.0]);
-    // ```
-    // It initializes Simplex with a minimization objective function z = 5x - 6y
+    /// Initialize a LP minimization problem
+    ///
+    /// Currently, only minimization is provided. Maximization can be achieved by changing the signs
+    ///
+    /// ```rust
+    /// use simplex::*;
+    /// let mut problem = Simplex::minimize(&vec![5.0, -6.0]);
+    /// ```
+    /// It initializes Simplex with a minimization objective function z = 5x - 6y
     pub fn minimize(objective: &Vec<f64>) -> SimplexMinimizerBuilder {
         SimplexMinimizerBuilder {
             objective: objective.clone(),
