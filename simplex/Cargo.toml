@@ -8,6 +8,7 @@ readme = "README.md"
 categories = ["algorithms", "mathematics"]
 keywords = ["simplex", "linear-programming"]
 license = "EUPL-1.2"
+repository = "https://github.com/aarroyoc/princeps"
 
 [dependencies]
 ndarray = "0.13.1"
